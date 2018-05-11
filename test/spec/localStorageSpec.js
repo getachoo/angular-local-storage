@@ -121,6 +121,12 @@ describe('localStorageService', function () {
         };
     }
 
+    function setDefaultToMemory(shouldDefault) {
+        return function (localStorageServiceProvider) {
+            localStorageServiceProvider.setDefaultToMemory(shouldDefault);
+        };
+    }
+
     function setNotify(itemSet, itemRemove) {
         return function (localStorageServiceProvider) {
             localStorageServiceProvider.setNotify(itemSet, itemRemove);
@@ -599,6 +605,193 @@ describe('localStorageService', function () {
             );
         });
 
+    });
+
+    // MemoryStorage
+    describe('MemoryStorage', function () {
+
+        beforeEach(module('LocalStorageModule', function ($provide) {
+            $provide.value('$window', {
+                localStorage: {
+                  setItem: function () { throw new Error('not implemented'); },
+                  getItem: function () { throw new Error('not implemented'); },
+                  removeItem: function () { throw new Error('not implemented'); },
+                },
+                sessionStorage: {
+                  setItem: function () { throw new Error('not implemented'); },
+                  getItem: function () { throw new Error('not implemented'); },
+                  removeItem: function () { throw new Error('not implemented'); },
+                }
+            });
+        }));
+
+        it('should be able to change storage to MemoryStorage', function () {
+            module(setStorage('memory'));
+
+            inject(function ($window, localStorageService) {
+                expect(localStorageService.getStorageType()).toEqual('memory');
+            });
+        });
+
+        it('should fall back on MemoryStorage', function () {
+            module(setDefaultToMemory(true));
+            inject(
+                expectStorageTyping('memory'),
+                addItem('foo', 'hello'),
+                expectMatching('foo', 'hello')
+            );
+        });
+
+        it('isSupported should be false on localStorage mode with no localStorage', function () {
+            module(setStorage('localStorage'));
+            inject(
+                expectSupporting(false)
+            );
+        });
+
+        it('should support setting and getting values', function () {
+          module(setStorage('memory'));
+
+          inject(
+            addItem('foo', 'bar'),
+            expectMatching('foo', 'bar'),
+            expectStorageTyping('memory')
+          );
+        });
+
+        it('should support removing a field', function () {
+          module(setStorage('memory'));
+
+          inject(
+            expectStorageTyping('memory'),
+            addItem('foo', 'bar'),
+            expectMatching('foo', 'bar'),
+            removeItem('foo'),
+            expectMatching('foo', null)
+          );
+        });
+
+        it('should actually call the memory store when specifying storage', function () {
+          module(setStorage('memory'));
+
+          inject(function ($rootScope, localStorageService) {
+              var spy = spyOn($rootScope, '$broadcast').and.callThrough();
+
+              localStorageService.set('a8m', 'foobar');
+              expect(localStorageService.get('a8m')).toEqual('foobar');
+
+              localStorageService.remove('a8m');
+              expect(localStorageService.get('a8m')).toEqual(null);
+
+              expect(spy).toHaveBeenCalledWith('MemoryStore setItem()');
+          });
+        });
+
+        it('should actually call the memory store when falling back', function () {
+          module(setDefaultToMemory(true));
+
+          inject(function ($rootScope, localStorageService) {
+              var spy = spyOn($rootScope, '$broadcast').and.callThrough();
+
+              localStorageService.set('a8m', 'foobar');
+              expect(localStorageService.get('a8m')).toEqual('foobar');
+
+              localStorageService.remove('a8m');
+              expect(localStorageService.get('a8m')).toEqual(null);
+
+              expect(spy).toHaveBeenCalledWith('MemoryStore setItem()');
+          });
+        });
+
+
+
+        it('should be able to return it\'s owned keys amount', function () {
+          module(setStorage('memory'));
+
+          inject(function ($window, localStorageService) {
+
+              for (var i = 0; i < 10; i++) {
+                  localStorageService.set('key' + i, 'val' + i);
+              }
+
+              expect(localStorageService.length()).toEqual(10);
+          });
+        });
+
+        it('should be able to clear all owned keys from storage', function () {
+          module(setStorage('memory'));
+
+          inject(function ($window, localStorageService) {
+            for (var i = 0; i < 10; i++) {
+                localStorageService.set('key' + i, 'val' + i);
+            }
+
+            localStorageService.clearAll();
+            //remove only owned keys
+            for (var l = 0; l < 10; l++) {
+                expect(localStorageService.get('key' + l)).toBeNull();
+            }
+          });
+        });
+
+        it('should be able to clear owned keys from storage, using RegExp', function () {
+          module(setStorage('memory'));
+
+          inject(function ($window, localStorageService) {
+            for (var i = 0; i < 10; i++) {
+                localStorageService.set('key' + i, 'val' + i);
+                localStorageService.set('otherKey' + i, 'val' + i);
+            }
+            localStorageService.set('keyAlpha', 'val');
+
+            localStorageService.clearAll(/^key/);
+
+            expect(localStorageService.get('keyAlpha')).toBeNull();
+
+            //remove only owned keys that follow RegExp
+            for (var l = 0; l < 10; l++) {
+                expect(localStorageService.get('key' + l)).toBeNull();
+                expect(localStorageService.get('otherKey' + l)).toEqual('val' + l);
+            }
+          })
+        });
+
+        it('should be able to clear owned keys from storage, using RegExp when prefix is empty string', function () {
+            module(setStorage('memory'));
+            module(setPrefix(''));
+
+            inject(function ($window, localStorageService) {
+                for (var i = 0; i < 10; i++) {
+                    localStorageService.set('key' + i, 'val' + i);
+                    localStorageService.set('otherKey' + i, 'val' + i);
+                }
+                localStorageService.set('keyAlpha', 'val');
+
+                localStorageService.clearAll(/^key/);
+
+                expect(localStorageService.get('keyAlpha')).toBeNull();
+
+                for (var l = 0; l < 10; l++) {
+                    expect(localStorageService.get('key' + l)).toBeNull();
+                    expect(localStorageService.get('otherKey' + l)).toEqual('val' + l);
+                }
+            });
+        });
+
+        it('should return array of all owned keys', function () {
+            module(setStorage('memory'));
+
+            inject(function ($window, localStorageService) {
+                //set keys
+                for (var i = 0; i < 10; i++) {
+                    //localStorageService
+                    localStorageService.set('ownKey' + i, 'val' + i);
+                }
+                localStorageService.keys().forEach(function (el, i) {
+                    expect(el).toEqual('ownKey' + i);
+                });
+            });
+        });
     });
 
     //cookie

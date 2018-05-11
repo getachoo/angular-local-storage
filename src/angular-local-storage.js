@@ -33,6 +33,26 @@ angular
 
     // Decides wether we should default to cookies if localstorage is not supported.
     this.defaultToCookie = true;
+    this.defaultToMemory = false;
+
+    // Empty memory store
+    this.memoryStore = {};
+
+    this.memoryStore.setItem = function (key, value) {
+      if (this.$rootScope && this.$rootScope.$broadcast) {
+        this.$rootScope.$broadcast('MemoryStore setItem()');
+      }
+
+      this[key] = value.toString();
+    };
+
+    this.memoryStore.getItem = function (key) {
+      return this[key] || null;
+    };
+
+    this.memoryStore.removeItem = function (key) {
+      delete this[key];
+    };
 
     // Send signals for each of the following actions?
     this.notify = {
@@ -49,11 +69,22 @@ angular
     // Setter for the storageType
     this.setStorageType = function(storageType) {
       this.storageType = storageType;
+
+      if (storageType === 'memory') {
+        this.defaultToCookie = false;
+        this.defaultToMemory = true;
+      }
+
       return this;
     };
     // Setter for defaultToCookie value, default is true.
     this.setDefaultToCookie = function (shouldDefault) {
       this.defaultToCookie = !!shouldDefault; // Double-not to make sure it's a bool value.
+      return this;
+    };
+    // Setter for defaultToCookie value, default is true.
+    this.setDefaultToMemory = function (shouldDefault) {
+      this.defaultToMemory = !!shouldDefault; // Double-not to make sure it's a bool value.
       return this;
     };
     // Setter for cookie config
@@ -95,6 +126,9 @@ angular
         $document = $document[0];
       }
 
+      // Add $rootScope to memoryStore
+      self.memoryStore['$rootScope'] = $rootScope;
+
       // If there is a prefix set in the config lets use that with an appended period for readability
       if (prefix.substr(-1) !== '.') {
         prefix = !!prefix ? prefix + '.' : '';
@@ -132,9 +166,19 @@ angular
 
           return supported;
         } catch (e) {
+          // If default to memory is set, use that and return "supported: true"
+          // Workaround to use the *Storage functions instead of the cookiebuilding code
+
+          if (self.defaultToMemory) {
+            storageType = 'memory';
+            self.setStorageType('memory');
+            webStorage = self.memoryStore;
+          }
           // Only change storageType to cookies if defaulting is enabled.
-          if (self.defaultToCookie)
+          else if (self.defaultToCookie) {
             storageType = 'cookie';
+          }
+
           $rootScope.$broadcast('LocalStorageModule.notification.error', e.message);
           return false;
         }
@@ -170,6 +214,10 @@ angular
           }
 
           try {
+            if (type === 'memory' || (!type && previousType === 'memory')) {
+              webStorage = self.memoryStore;
+            }
+
             if (webStorage) {
               webStorage.setItem(deriveQualifiedKey(key), value);
             }
@@ -319,13 +367,13 @@ angular
           var prefixRegex = !!prefix ? new RegExp('^' + prefix) : new RegExp();
           var testRegex = !!regularExpression ? new RegExp(regularExpression) : new RegExp();
 
-          if (!browserSupportsLocalStorage && self.defaultToCookie  || self.storageType === 'cookie') {
+          if (!browserSupportsLocalStorage && (self.defaultToCookie  || self.storageType === 'cookie')) {
             if (!browserSupportsLocalStorage) {
               $rootScope.$broadcast('LocalStorageModule.notification.warning', 'LOCAL_STORAGE_NOT_SUPPORTED');
             }
             return clearAllFromCookies();
           }
-          if (!browserSupportsLocalStorage && !self.defaultToCookie)
+          if (!browserSupportsLocalStorage && !self.defaultToCookie && !self.defaultToMemory)
             return false;
           var prefixLength = prefix.length;
 
@@ -537,9 +585,10 @@ angular
             setStorageType(type);
 
             var count = 0;
-            var storage = $window[storageType];
-            for(var i = 0; i < storage.length; i++) {
-              if(storage.key(i).indexOf(prefix) === 0 ) {
+            var storage = (getStorageType() === 'memory' ? self.memoryStore : $window[storageType]);
+            var keys = Object.keys(storage);
+            for(var i = 0; i < keys.length; i++) {
+              if(keys[i].indexOf(prefix) === 0 ) {
                 count++;
               }
             }
